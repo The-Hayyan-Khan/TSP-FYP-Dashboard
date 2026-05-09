@@ -173,14 +173,16 @@ def get_yield(p2o5: float) -> float:
     Returns TSP yield (%) based on P2O5 content in rock phosphate.
     Uses range-based lookup (engineering approximation).
     """
-    if p2o5 <= 20:
-        return 60.0
-    elif p2o5 <= 25:
+    if p2o5 <= 15:
         return 70.0
-    elif p2o5 <= 30:
+    elif p2o5 <= 20:
         return 80.0
-    else:
+    elif p2o5 <= 25:
+        return 85.0
+    elif p2o5 <= 30:
         return 90.0
+    else:
+        return 95.0
 
 
 def get_conversion(acid_conc: float) -> float:
@@ -189,13 +191,13 @@ def get_conversion(acid_conc: float) -> float:
     Higher acid concentration → better conversion of phosphate.
     """
     if acid_conc <= 90:
-        return 65.0
-    elif acid_conc <= 94:
         return 75.0
-    elif acid_conc <= 96:
+    elif acid_conc <= 94:
         return 85.0
+    elif acid_conc <= 96:
+        return 90.0
     else:
-        return 92.0
+        return 95.0
 
 
 def compute_process(p2o5: float, feed_rate: float, acid_conc: float) -> dict:
@@ -213,12 +215,12 @@ def compute_process(p2o5: float, feed_rate: float, acid_conc: float) -> dict:
     yield_pct      = get_yield(p2o5)
     conversion_pct = get_conversion(acid_conc)
 
-    tsp_per_day    = (yield_pct / 100) * feed_rate        # tons/day TSP
-    gypsum_per_day = 0.80 * feed_rate                     # tons/day gypsum byproduct
-    hf_per_day     = 0.02 * feed_rate                     # tons/day HF emission
+    tsp_per_day    = ( yield_pct * conversion_pct / 10000) * (0.52654) * (0.6666) * feed_rate        # tons/day TSP
+    gypsum_per_day = 0.506 * feed_rate                     # tons/day gypsum byproduct
+    hf_per_day     = 0.016 * feed_rate                     # tons/day HF emission
 
-    # Convert to annual (330 operating days/year is standard for chemical plants)
-    op_days        = 330
+    # Convert to annual (347 operating days/year is standard for chemical plants)
+    op_days        = 347
     tsp_annual     = tsp_per_day    * op_days
     gypsum_annual  = gypsum_per_day * op_days
     hf_annual      = hf_per_day     * op_days
@@ -228,20 +230,24 @@ def compute_process(p2o5: float, feed_rate: float, acid_conc: float) -> dict:
     # Raw material cost (annual)
     # Assuming local rock phosphate @ $60/ton + acid @ $150/ton feed
     # Acid usage estimated at ~0.6 tons H2SO4 per ton of rock feed (typical TSP stoichiometry)
-    acid_usage_per_day = 0.60 * feed_rate                 # tons/day acid consumed
+    acid_usage_per_day = 0.31 * feed_rate                 # tons/day acid consumed
     raw_mat_annual = (
         feed_rate       * op_days * 60    +   # local rock phosphate
-        acid_usage_per_day * op_days * 150    # sulfuric acid
+        acid_usage_per_day * op_days * 150 +   # sulfuric acid
+        1_500_000 # conditioning agents
     )
 
     # Utility cost = 15% of raw material cost (simplified lump sum)
-    utility_cost = 0.15 * raw_mat_annual
+    utility_cost = 0.07 * raw_mat_annual
 
     # Maintenance = 5% of raw material cost (O&M practice)
     maintenance_cost = 0.05 * raw_mat_annual
+    
+    # yearly
+    fixed_cost = 5820000 
 
     # Total OPEX
-    opex = raw_mat_annual + utility_cost + maintenance_cost
+    opex = raw_mat_annual + utility_cost + maintenance_cost + fixed_cost
 
     # Revenue
     revenue = (tsp_annual * 600) + (gypsum_annual * 25)
@@ -254,7 +260,7 @@ def compute_process(p2o5: float, feed_rate: float, acid_conc: float) -> dict:
     net_profit = gross_profit * (1 - tax_rate)
 
     # CAPEX using six-tenths rule: CAPEX = 50M × (feed/200)^0.6
-    capex = 50_000_000 * ((feed_rate / 200) ** 0.6)
+    capex = 7_303_000 * ((feed_rate / 200) ** 0.6)
 
     # Payback period (years)
     payback = capex / net_profit if net_profit > 0 else float('inf')
@@ -317,19 +323,19 @@ with st.sidebar:
     st.markdown("### Feed Parameters")
     p2o5 = st.slider(
         "P₂O₅ Content in Rock Phosphate (%)",
-        min_value=15, max_value=35, value=25, step=1,
+        min_value=15, max_value=35, value=22, step=1,
         help="Higher P₂O₅ grade → better yield"
     )
     feed_rate = st.slider(
         "Feed Rate (tons/day)",
-        min_value=50, max_value=500, value=200, step=10,
+        min_value=100, max_value=1500, value=1270, step=10,
         help="Daily throughput of rock phosphate"
     )
 
     st.markdown("### Acid Parameters")
     acid_conc = st.slider(
         "Acid Concentration (% H₂SO₄)",
-        min_value=85, max_value=98, value=93, step=1,
+        min_value=85, max_value=98, value=98, step=1,
         help="Higher concentration → better conversion efficiency"
     )
 
@@ -340,7 +346,7 @@ with st.sidebar:
     )
 
     st.markdown("---")
-    st.markdown("<div style='font-size:0.72rem; color:#4a6080; font-family: IBM Plex Mono;'>Operating days: 330/year<br>Tax rate: 29% (Pakistan)<br>Pricing: USD</div>",
+    st.markdown("<div style='font-size:0.72rem; color:#4a6080; font-family: IBM Plex Mono;'>Operating days: 347/year<br>Tax rate: 29% (Pakistan)<br>Pricing: USD</div>",
                 unsafe_allow_html=True)
 
 
@@ -350,7 +356,7 @@ with st.sidebar:
 res = compute_process(p2o5, feed_rate, acid_conc)
 
 # Baseline (fixed reference case)
-BASELINE = {"p2o5": 25, "feed_rate": 200, "acid_conc": 93}
+BASELINE = {"p2o5": 22, "feed_rate": 1270, "acid_conc": 98}
 base_res  = compute_process(**BASELINE)
 
 
@@ -555,10 +561,10 @@ with chart_col3:
 # ── Chart 4: OPEX Pie breakdown ───────────────
 with chart_col4:
     st.markdown("**OPEX Cost Breakdown**")
-    st.markdown("<div class='info-box'>Raw materials dominate costs. Utilities (15%) and maintenance (5%) are proportional estimates.</div>",
+    st.markdown("<div class='info-box'>Raw materials dominate costs. Utilities (7%) and maintenance (5%) are proportional estimates.</div>",
                 unsafe_allow_html=True)
 
-    opex_labels  = ["Raw Materials", "Utilities (15%)", "Maintenance (5%)"]
+    opex_labels  = ["Raw Materials", "Utilities", "Maintenance"]
     opex_values  = [res["raw_mat_annual"], res["utility_cost"], res["maintenance_cost"]]
     opex_colors  = [ACCENT3, ACCENT2, ACCENT4]
 
@@ -595,7 +601,7 @@ st.markdown("<div class='section-header'>Capital Expenditure (CAPEX)</div>", uns
 capex_col1, capex_col2, capex_col3 = st.columns(3)
 with capex_col1:
     st.metric("Estimated CAPEX", f"${res['capex']/1e6:.2f}M USD",
-              help="CAPEX = $50M × (Feed Rate / 200)^0.6")
+              help="CAPEX = $7M × (Feed Rate / 200)^0.6")
 with capex_col2:
     st.metric("Annual OPEX",     f"${res['opex']/1e6:.2f}M USD")
 with capex_col3:
@@ -606,8 +612,8 @@ with capex_col3:
 
 # CAPEX sensitivity: feed rate sweep
 st.markdown("**CAPEX Sensitivity to Feed Rate**")
-feed_sweep   = list(range(50, 510, 10))
-capex_sweep  = [50e6 * (f / 200) ** 0.6 for f in feed_sweep]
+feed_sweep   = list(range(100, 1500, 10))
+capex_sweep  = [7e6 * (f / 200) ** 0.6 for f in feed_sweep]
 
 fig_capex = go.Figure()
 fig_capex.add_trace(go.Scatter(
